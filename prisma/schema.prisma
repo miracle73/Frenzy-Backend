@@ -1,0 +1,470 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  customer
+  salon
+  stylist
+}
+
+enum StylistStatus {
+  active
+  inactive
+  suspended
+  pending_approval
+}
+
+enum ProviderType {
+  salon
+  stylist
+}
+
+enum PaymentDepositStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+enum PaymentRemainingStatus {
+  pending
+  authorized
+  captured
+  failed
+}
+
+enum PaymentPayoutStatus {
+  pending
+  released
+  withdrawn
+}
+
+enum PaymentCheckoutStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+enum SubaccountStatus {
+  active
+  inactive
+}
+
+enum LedgerEntryType {
+  deposit_pending_credit
+  payout_release_credit
+  withdrawal_debit
+  refund_debit
+}
+
+enum WithdrawalStatus {
+  requested
+  initiated
+  completed
+  failed
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  in_progress
+  completed
+  cancelled
+  no_show
+}
+
+enum BookingPaymentStatus {
+  unpaid
+  partial
+  paid
+  refunded
+}
+
+enum BookingServiceType {
+  salon
+  home_service
+}
+
+enum BookingCancelledBy {
+  customer
+  stylist
+  salon
+  admin
+}
+
+model User {
+  id                       String                    @id @default(cuid())
+  email                    String                    @unique
+  firstName                String?
+  middleName               String?
+  lastName                 String?
+  password                 String?
+  accountType              AccountType
+  verifyStatus             Boolean                   @default(false)
+  otpHash                  String?
+  otpExpiresAt             DateTime?
+  otpAttempts              Int                       @default(0)
+  otpVerifiedAt            DateTime?
+  passwordResetTokenHash   String?
+  passwordResetExpiresAt   DateTime?
+  profileImgUrl            String?
+  phoneNumber              String?                   @unique
+  countryCode              String?
+  countryCallCode          String?
+  referralCode             String?
+  savedAddresses           Json?
+  refreshTokens            RefreshToken[]
+  salon                    Salon?
+  stylist                  Stylist?
+  customerBookings         Booking[]                 @relation("CustomerBookings")
+  conversationParticipants ConversationParticipant[]
+  sentMessages             ChatMessage[]             @relation("SentMessages")
+  paymentCheckouts         PaymentCheckout[]
+  subaccount               Subaccount?
+  favourites               Favourite[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+}
+
+model Conversation {
+  id            String    @id @default(cuid())
+  type          String    @default("direct")
+  lastMessageId String?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  participants ConversationParticipant[]
+  messages     ChatMessage[]             @relation("ConversationMessages")
+  lastMessage  ChatMessage?              @relation("ConversationLastMessage", fields: [lastMessageId], references: [id], onDelete: SetNull)
+
+  @@index([lastMessageAt])
+}
+
+model ConversationParticipant {
+  id                String    @id @default(cuid())
+  conversationId    String
+  userId            String
+  lastReadMessageId String?
+  lastReadAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, updatedAt])
+  @@index([conversationId])
+}
+
+model ChatMessage {
+  id              String   @id @default(cuid())
+  conversationId  String
+  senderId        String
+  text            String
+  clientMessageId String?
+  createdAt       DateTime @default(now())
+
+  conversation        Conversation   @relation("ConversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
+  sender              User           @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  lastForConversation Conversation[] @relation("ConversationLastMessage")
+
+  @@unique([conversationId, senderId, clientMessageId])
+  @@index([conversationId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+model RefreshToken {
+  id                  String    @id @default(cuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id])
+  tokenHash           String    @unique
+  replacedByTokenHash String?
+  revokedAt           DateTime?
+  expiresAt           DateTime
+  createdAt           DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AccessTokenBlocklist {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model Salon {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id])
+  email             String    @unique
+  business_name     String?
+  business_logo     String?
+  business_banner   String?
+  website_link      String?
+  stylist_count     Int       @default(0)
+  full_address      String?
+  address_line_2    String?
+  state             String?
+  city              String?
+  lga               String?
+  area              String?
+  country           String?
+  lat               Float?
+  lng               Float?
+  about             String?
+  profileCompleted  Boolean   @default(false)
+  reminder_48h_sent Boolean   @default(false)
+  reminder_96h_sent Boolean   @default(false)
+  services          Json?
+  openHours         Json?
+  business_gallery  String[]  @default([])
+  bankDetails       Json?
+  wallet            Json?
+  bookings          Booking[] @relation("SalonBookings")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Stylist {
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id])
+  business_name   String?
+  email           String        @unique
+  phoneNumber     String?
+  bio             String?
+  specializations String[]      @default([])
+  experience      Json?
+  portfolio       Json?
+  imageGallery    String[]      @default([])
+  bannerImage     String?
+  availability    Json?
+  pricing         Json?
+  location        Json?
+  ratings         Json?
+  reviews         Json?
+  earnings        Json?
+  status          StylistStatus @default(pending_approval)
+  bankDetails     Json?
+  wallet          Json?
+  bookings        Booking[]     @relation("StylistBookings")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status])
+}
+
+model Booking {
+  id                 String               @id @default(cuid())
+  customerId         String
+  customer           User                 @relation("CustomerBookings", fields: [customerId], references: [id])
+  salonId            String?
+  salon              Salon?               @relation("SalonBookings", fields: [salonId], references: [id])
+  stylistId          String?
+  stylist            Stylist?             @relation("StylistBookings", fields: [stylistId], references: [id])
+  providerType       ProviderType
+  serviceType        BookingServiceType
+  services           Json
+  totalAmount        Float
+  totalDuration      Int
+  transportFare      Float                @default(0)
+  location           Json?
+  customerPhone      String?
+  preferredDate      DateTime
+  preferredTime      String
+  actualDate         DateTime?
+  actualTime         String?
+  notes              String?
+  styleImageUrls     String[]              @default([])
+  isGroupBooking     Boolean              @default(false)
+  groupBookingId     String?
+  personName         String?
+  status             BookingStatus        @default(pending)
+  paymentStatus      BookingPaymentStatus @default(unpaid)
+  paymentMethod      String?
+  cancellationReason String?
+  cancelledBy        BookingCancelledBy?
+  acceptedAt         DateTime?
+  startedAt          DateTime?
+  cancelledAt        DateTime?
+  completedAt        DateTime?
+  rating             Json?
+  providerRating     Json?
+  stylistNotes       String?
+  depositPercent     Int                  @default(100)
+  reminderSent       Boolean              @default(false)
+  reminderSentAt     DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([customerId, status])
+  @@index([stylistId, preferredDate])
+  @@index([salonId, preferredDate])
+  @@index([status, preferredDate])
+  @@index([paymentStatus])
+  @@index([groupBookingId])
+}
+
+model PaymentCheckout {
+  id                       String                @id @default(cuid())
+  customerId               String
+  customer                 User                  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  groupBookingId           String?
+  bookingIds               String[]              @default([])
+  clientCheckoutId         String
+  totalAmount              Float
+  currency                 String                @default("NGN")
+  status                   PaymentCheckoutStatus @default(pending)
+  paystackReference        String?               @unique
+  paystackAuthorizationUrl String?
+  paidAt                   DateTime?
+  failedAt                 DateTime?
+  refundedAt               DateTime?
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  payments Payment[]
+
+  @@unique([customerId, clientCheckoutId])
+  @@index([groupBookingId])
+  @@index([customerId, status])
+}
+
+model Payment {
+  id                   String                 @id @default(cuid())
+  checkoutId            String?
+  checkout              PaymentCheckout?      @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+  bookingId            String
+  bookingType          String
+  bookingIds           String[]               @default([])
+  isGroupBooking       Boolean                @default(false)
+  groupBookingId       String?
+  customerId           String
+  providerId           String
+  providerType         ProviderType
+  totalAmount          Float
+  depositAmount        Float
+  remainingAmount      Float
+  platformFee          Float
+  providerAmount       Float
+  depositStatus        PaymentDepositStatus   @default(pending)
+  remainingStatus      PaymentRemainingStatus @default(pending)
+  payoutStatus         PaymentPayoutStatus    @default(pending)
+  paystackDepositRef   String?                @unique
+  paystackRemainingRef String?
+  authorizationCode    String?
+  subaccountCode       String?
+  depositPaidAt        DateTime?
+  remainingCapturedAt  DateTime?
+  serviceCompletedAt   DateTime?
+  payoutReleasedAt     DateTime?
+  payoutWithdrawnAt    DateTime?
+  refundAmount         Float?
+  refundReason         String?
+  refundedAt           DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  ledgerEntries PaymentLedger[]
+
+  @@index([customerId])
+  @@index([providerId])
+  @@index([paystackDepositRef])
+  @@index([checkoutId])
+}
+
+model Subaccount {
+  id                     String           @id @default(cuid())
+  userId                 String           @unique
+  user                   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userType               ProviderType
+  paystackSubaccountCode String           @unique
+  bankName               String
+  accountNumber          String
+  accountName            String
+  status                 SubaccountStatus @default(active)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  @@index([userId])
+}
+
+model PaystackWebhookEvent {
+  id              String   @id @default(cuid())
+  paystackEventId String   @unique
+  event           String
+  reference       String?
+  payload         Json
+  processedAt     DateTime @default(now())
+}
+
+model PaymentLedger {
+  id           String          @id @default(cuid())
+  paymentId    String?
+  providerId   String
+  providerType ProviderType
+  entryType    LedgerEntryType
+  amount       Float
+  currency     String          @default("NGN")
+  metadata     Json?
+  createdAt    DateTime        @default(now())
+
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@unique([paymentId, entryType])
+  @@index([providerId])
+  @@index([paymentId])
+}
+
+model ServiceDiscount {
+  id              String   @id @default(cuid())
+  serviceKeyword  String
+  discountPercent Float
+  maxPrice        Float?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([serviceKeyword])
+}
+
+model Favourite {
+  id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerType ProviderType
+  providerId   String
+  createdAt    DateTime     @default(now())
+
+  @@unique([userId, providerType, providerId])
+  @@index([userId])
+  @@index([providerId, providerType])
+}
+
+model WithdrawalRequest {
+  id            String           @id @default(cuid())
+  providerId    String
+  providerType  ProviderType
+  amount        Float
+  status        WithdrawalStatus @default(requested)
+  transferCode  String?
+  recipientCode String?
+  failureReason String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([providerId])
+}

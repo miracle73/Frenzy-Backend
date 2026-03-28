@@ -1,0 +1,62 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Uncomment when Jest tests are stable
+      # - name: Test
+      #   run: npm test
+
+  deploy-production:
+    name: Deploy to Production (Coolify)
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+
+    steps:
+      - name: Trigger Coolify production deploy
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_PROD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
+            echo "⚠️ COOLIFY_PROD_WEBHOOK_URL not set - deploy manually in Coolify"
+            exit 0
+          fi
+          echo "🚀 Triggering production deploy..."
+          curl -X GET "$COOLIFY_WEBHOOK_URL"
+          echo "✅ Production deploy triggered"
