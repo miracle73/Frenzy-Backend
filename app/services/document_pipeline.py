@@ -19,6 +19,13 @@ from app import agents
 from app.database import SessionLocal
 from app.config import settings
 
+# Optional import for insight agent (requires openai-agents SDK)
+try:
+    from app.agents.insight import get_insight
+    INSIGHT_AGENT_AVAILABLE = True
+except ImportError:
+    INSIGHT_AGENT_AVAILABLE = False
+
 
 class DocumentPipelineError(Exception):
     """Custom exception for pipeline errors."""
