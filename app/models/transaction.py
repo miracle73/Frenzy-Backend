@@ -20,6 +20,7 @@ class Transaction(Base):
     vendor = Column(String(200), nullable=True, index=True)
     reference = Column(String(200), nullable=True)
     confidence = Column(Float, nullable=True)  # AI extraction confidence score
+    classification_reasoning = Column(String(1000), nullable=True)  # Explanation of income/expense classification
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

@@ -3,8 +3,7 @@
 import os
 import json
 from typing import Dict, Any
-from agents import Agent, Runner, function_tool, set_default_openai_client, set_default_openai_api
-from agents.models import OpenAIChatCompletionsModel
+from agents import Agent, Runner, function_tool, set_default_openai_client, set_default_openai_api, OpenAIChatCompletionsModel
 from agents.mcp import MCPServer, MCPServerStdio
 from pydantic import BaseModel
 from decimal import Decimal

@@ -14,6 +14,7 @@ from app.models.document import Document
 from app.models.transaction import Transaction
 from app.models.vendor import Vendor
 from app.models.category import Category
+from app.models.conversation import Conversation
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

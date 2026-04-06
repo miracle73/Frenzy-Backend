@@ -14,6 +14,7 @@ class TransactionBase(BaseModel):
     vendor: Optional[str] = None
     reference: Optional[str] = None
     confidence: Optional[float] = None
+    classification_reasoning: Optional[str] = None
 
 
 class TransactionCreate(TransactionBase):
@@ -30,6 +31,7 @@ class TransactionUpdate(BaseModel):
     category: Optional[str] = None
     vendor: Optional[str] = None
     reference: Optional[str] = None
+    classification_reasoning: Optional[str] = None
     confidence: Optional[float] = None
 
 

@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, 
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.document import Document
+from app.models.transaction import Transaction
 from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate, DocumentList
-from app.services.document_pipeline import enqueue_document_processing
+from app.services.document_pipeline import enqueue_document_processing, process_document_pipeline
 import os
 import uuid
 from datetime import datetime
@@ -168,3 +169,103 @@ async def delete_document(
     db.commit()
 
     return {"message": "Document deleted successfully"}
+
+
+@router.post("/{document_id}/reprocess")
+async def reprocess_document(
+    document_id: int,
+    db: Session = Depends(get_db)
+):
+    """Reprocess a document by deleting existing transactions and re-running the pipeline."""
+    # TODO: Get tenant_id from authenticated user
+    tenant_id = CURRENT_TENANT_ID
+
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.tenant_id == tenant_id
+    ).first()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Delete existing transactions for this document
+    deleted_count = db.query(Transaction).filter(
+        Transaction.document_id == document.id
+    ).delete(synchronize_session=False)
+
+    # Reset document status
+    document.status = "pending"
+    document.updated_at = datetime.utcnow()
+    db.commit()
+
+    # Reprocess document synchronously
+    results = process_document_pipeline(document_id, db)
+
+    return {
+        "message": f"Document reprocessed successfully",
+        "document_id": document_id,
+        "deleted_transactions": deleted_count,
+        "new_transactions": results.get("total_transactions", 0),
+        "success": results.get("success", False),
+        "details": results
+    }
+
+
+@router.post("/reprocess-all")
+async def reprocess_all_documents(
+    db: Session = Depends(get_db)
+):
+    """Reprocess all completed/failed documents to fix transaction types."""
+    # TODO: Get tenant_id from authenticated user
+    tenant_id = CURRENT_TENANT_ID
+
+    # Get all documents that have been processed before
+    documents = db.query(Document).filter(
+        Document.tenant_id == tenant_id,
+        Document.status.in_(["completed", "failed"])
+    ).all()
+
+    results = {
+        "total_documents": len(documents),
+        "processed": 0,
+        "failed": 0,
+        "details": []
+    }
+
+    for document in documents:
+        try:
+            # Delete existing transactions
+            deleted = db.query(Transaction).filter(
+                Transaction.document_id == document.id
+            ).delete(synchronize_session=False)
+
+            # Reset status and reprocess
+            document.status = "pending"
+            document.updated_at = datetime.utcnow()
+            db.commit()
+
+            doc_results = process_document_pipeline(document.id, db)
+
+            if doc_results.get("success"):
+                results["processed"] += 1
+            else:
+                results["failed"] += 1
+
+            results["details"].append({
+                "document_id": document.id,
+                "filename": document.filename,
+                "deleted_transactions": deleted,
+                "new_transactions": doc_results.get("total_transactions", 0),
+                "success": doc_results.get("success", False),
+                "error": doc_results.get("error")
+            })
+
+        except Exception as e:
+            results["failed"] += 1
+            results["details"].append({
+                "document_id": document.id,
+                "filename": document.filename,
+                "error": str(e)
+            })
+
+    return results

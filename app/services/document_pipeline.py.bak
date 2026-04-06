@@ -185,7 +185,7 @@ def process_document_pipeline(document_id: int, db: Session) -> Dict[str, Any]:
                     category=transaction_data["category"],
                     vendor=transaction_data.get("vendor"),
                     reference=transaction_data.get("reference"),
-                    confidence=transaction_data.get("confidence", 0.0) * 0.5,  # Lower confidence for flagged
+                    confidence=transaction_data.get("confidence", 0.0) * 0.5  # Lower confidence for flagged
                 classification_reasoning=transaction_data.get("classification_reasoning"),
                 )
                 db.add(db_transaction)
