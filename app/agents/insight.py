@@ -88,109 +88,113 @@ def database_query_tool_wrapper(
 
 
 @function_tool
-def query_database(
-    question: str,
-    filters: str,
-    page: int = 1,
-    page_size: int = 100
+def query_transactions(
+    query_type: str,
+    start_date: str = "",
+    end_date: str = "",
+    category: str = "",
+    vendor: str = "",
+    transaction_type: str = "",
+    search_description: str = "",
+    min_amount: float = 0,
+    max_amount: float = 0,
+    limit: int = 100,
+    offset: int = 0
 ) -> str:
     """
-    Query the financial database to answer questions about transactions, expenses, income, and spending patterns.
-
-    This tool is designed to handle natural language queries about financial data by executing appropriate database queries.
+    Query the financial database for transactions, summaries, and analytics.
 
     Args:
-        question: Natural language question about the financial data (e.g., "How much did we spend on fuel this month?")
-        filters: JSON string of filters including date range, category, vendor, etc.
-        page: Page number for pagination (default: 1)
-        page_size: Number of results per page (default: 100)
+        query_type: One of: list_transactions, sum_by_category, monthly_totals, vendor_breakdown, pending_invoices
+        start_date: Filter start date in YYYY-MM-DD format (optional)
+        end_date: Filter end date in YYYY-MM-DD format (optional)
+        category: Filter by category like payroll, fuel, rent, office_supplies, utilities, subscriptions, insurance, travel, marketing, equipment, etc. (optional)
+        vendor: Filter by vendor name (optional)
+        transaction_type: Filter by "income" or "expense" (optional)
+        search_description: Search keyword to filter transactions by description content, e.g. "salary", "fuel", "rent" (optional)
+        min_amount: Minimum transaction amount (optional, 0 means no filter)
+        max_amount: Maximum transaction amount (optional, 0 means no filter)
+        limit: Maximum results to return (default 100)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
-        JSON formatted string with query results including success status and data
+        JSON string with query results
 
-    Examples:
-        Get expenses for this month:
-        {
-            "question": "How much spent on fuel",
-            "filters": "{\"start_date\":\"2026-04-01\",\"end_date\":\"2026-04-30\",\"transaction_type\":\"expense\"}",
-            "page": 1,
-            "page_size": 100
-        }
-
-        Get income by month:
-        {
-            "question": "Income monthly totals",
-            "filters": "{\"transaction_type\":\"income\"}",
-            "page": 1,
-            "page_size": 100
-        }
-
-        Get vendor breakdown:
-        {
-            "question": "Vendor breakdown for expenses",
-            "filters": "{\"transaction_type\":\"expense\"}",
-            "page": 1,
-            "page_size": 10
-        }
+    IMPORTANT GUIDELINES FOR CHOOSING PARAMETERS:
+    - For salary questions: use category="payroll" OR search_description="salary"
+    - For fuel questions: use category="fuel"
+    - For rent questions: use category="rent"
+    - For "this month" questions: set start_date to first day of current month, end_date to today
+    - For "last month" questions: set appropriate date range
+    - For "how much spent on X": use query_type="sum_by_category" with relevant category
+    - For "list all X transactions": use query_type="list_transactions" with filters
+    - For "monthly trends": use query_type="monthly_totals"
+    - For "top vendors": use query_type="vendor_breakdown"
+    - If unsure about category name, use search_description to search by keyword instead
     """
     try:
-        # Parse filters
-        filter_dict = json.loads(filters) if isinstance(filters, str) else filters
+        filters = {}
 
-        # Determine query type based on question
-        question_lower = question.lower()
+        if start_date:
+            filters["start_date"] = start_date
+        if end_date:
+            filters["end_date"] = end_date
+        if category:
+            filters["category"] = category
+        if vendor:
+            filters["vendor"] = vendor
+        if transaction_type:
+            filters["transaction_type"] = transaction_type
+        if search_description:
+            filters["search_description"] = search_description
+        if min_amount > 0:
+            filters["min_amount"] = min_amount
+        if max_amount > 0:
+            filters["max_amount"] = max_amount
 
-        if "monthly totals" in question_lower or "month by month" in question_lower:
-            query_type = "monthly_totals"
-        elif "vendor" in question_lower or "merchants" in question_lower:
-            query_type = "vendor_breakdown"
-        elif "category" in question_lower or "by category" in question_lower:
-            query_type = "sum_by_category"
-        elif "pending" in question_lower or "invoice" in question_lower:
-            query_type = "pending_invoices"
-        else:
-            query_type = "list_transactions"
-
-        # Parse limit and offset from page parameters
-        limit = page_size
-        offset = (page - 1) * page_size
-
-        # Execute the database query
-        return database_query_tool_wrapper(query_type, filter_dict, limit, offset)
+        return database_query_tool_wrapper(query_type, filters, limit, offset)
 
     except Exception as e:
         return json.dumps({
             "success": False,
-            "error": f"Query failed: {str(e)}",
-            "question": question,
-            "filters": filters
+            "error": f"Query failed: {str(e)}"
         })
 
 
 # Create the Insight Agent
 insight_agent = Agent(
     name="insight_agent",
-    instructions="""You are a financial data analyst assistant. Help users understand their financial data by:
+    instructions="""You are a financial data analyst assistant for the Agentic Storekeeper platform. Help users understand their financial data by querying the database and providing clear answers.
 
-1. Analyzing their questions about transactions, expenses, income, and spending patterns
-2. Querying the database using the query_database tool
-3. Interpreting the results and providing clear, actionable answers
-4. Including relevant data and numbers in your responses
-5. Being conversational while providing precise financial insights
+HOW TO ANSWER QUESTIONS:
 
-Guidelines:
-- For questions about specific spending: query expenses with filters
-- For income questions: query with transaction_type="income"
-- For comparisons over time: use monthly_totals or vendor_breakdown queries
-- Always include amounts, dates, and relevant context in answers
-- Calculate totals and percentages when helpful
-- Identify patterns and trends
-- Suggest follow-up questions
+1. Determine what data is needed from the question
+2. Use the query_transactions tool with appropriate parameters
+3. Analyze the results and provide a clear, specific answer with numbers
 
-If a query fails or returns no results, explain what was attempted and suggest how the user might rephrase their question.
+MAPPING COMMON QUESTIONS TO QUERIES:
+
+- "How much did we spend on salaries/payroll?" → query_type="sum_by_category", category="payroll"
+- "Show me salary transactions" → query_type="list_transactions", category="payroll"
+- "How much did we spend on fuel?" → query_type="sum_by_category", category="fuel"
+- "What's our total income this month?" → query_type="list_transactions", transaction_type="income", with date range
+- "Vendor breakdown" → query_type="vendor_breakdown"
+- "Monthly spending trends" → query_type="monthly_totals"
+- "Pending invoices" → query_type="pending_invoices"
+
+CATEGORY NAMES IN THE DATABASE:
+payroll, fuel, rent, office_supplies, utilities, subscriptions, insurance, travel, meals, maintenance, marketing, professional_services, equipment, shipping, training, client_payment, refund, miscellaneous
+
+IMPORTANT:
+- If a category filter returns no results, try using search_description with a keyword instead
+- Always include specific numbers (amounts, counts) in your answer
+- Format currency as NGN with commas (e.g., N1,250,000)
+- If no results found, say so clearly and suggest alternative queries
+- When asked about "this month", use the current month's date range
+- When asked about "salary" or "salaries", use category="payroll"
 """,
     model=model,
-    tools=[query_database],
+    tools=[query_transactions],
     mcp_servers=[]
 )
 
@@ -211,25 +215,20 @@ async def get_insight(question: str, db: Session, tenant_id: int) -> InsightResp
     set_db_context(InsightContext(db, tenant_id))
 
     try:
-        # Set default filters for the past month if not specified elsewhere
         from datetime import datetime, timedelta
 
         today = datetime.now().date()
         start_of_month = today.replace(day=1)
-        last_month = start_of_month - timedelta(days=1)
-        start_of_last_month = last_month.replace(day=1)
 
-        # This will be passed to the tool via user message
         runner_prompt = f"""Answer this question: {question}
 
-The user has access to their financial transactions including expenses and income.
-They can filter by date range, category, vendor, and transaction type.
+Context:
+- Tenant ID: {tenant_id}
+- Today's date: {today.isoformat()}
+- Current month started: {start_of_month.isoformat()}
+- When the user says "this month", use start_date="{start_of_month.isoformat()}" and end_date="{today.isoformat()}"
 
-Current period: past month (from {start_of_last_month} to {start_of_month})
-Tenant: {tenant_id}
-
-Include specific numbers, dates, and context in your response.
-If querying the database, use appropriate filters based on the question.
+Use the query_transactions tool to get the data you need, then provide a clear answer with specific numbers.
 """
 
         # Run the agent
@@ -242,12 +241,10 @@ If querying the database, use appropriate filters based on the question.
         # Extract final answer
         answer = result.final_output or "I couldn't find an answer to your question."
 
-        # Extract data from the agent's reasoning (simplified for now)
-        # In a production environment, you might want to track the tool calls and results
         data = {
             "question": question,
             "tenant_id": tenant_id,
-            "answered_at": datetime.utcnow().isoformat()
+            "answered_at": datetime.now().isoformat()
         }
 
         return InsightResponse(
