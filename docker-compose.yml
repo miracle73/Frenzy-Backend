@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: storekeeper-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-storekeeper}:${POSTGRES_PASSWORD:-storekeeper_pass}@db:5432/${POSTGRES_DB:-storekeeper_db}
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    container_name: storekeeper-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-storekeeper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storekeeper_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-storekeeper_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-storekeeper}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: storekeeper-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # Run migrations automatically on startup
+  migrate:
+    build: .
+    container_name: storekeeper-migrate
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-storekeeper}:${POSTGRES_PASSWORD:-storekeeper_pass}@db:5432/${POSTGRES_DB:-storekeeper_db}
+    command: alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
