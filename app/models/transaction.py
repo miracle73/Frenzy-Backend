@@ -9,15 +9,15 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=True, index=True)
-    date = Column(Date, nullable=False, index=True)
+    tenant_id = Column(Integer, nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    date = Column(Date, nullable=False)
     description = Column(String(500), nullable=False)
     amount = Column(Numeric(15, 2), nullable=False)
     currency = Column(String(3), nullable=False, default="NGN")
     type = Column(String(10), nullable=False)  # income/expense
-    category = Column(String(100), nullable=True, index=True)
-    vendor = Column(String(200), nullable=True, index=True)
+    category = Column(String(100), nullable=True)
+    vendor = Column(String(200), nullable=True)
     reference = Column(String(200), nullable=True)
     confidence = Column(Float, nullable=True)  # AI extraction confidence score
     classification_reasoning = Column(String(1000), nullable=True)  # Explanation of income/expense classification

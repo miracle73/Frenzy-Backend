@@ -8,7 +8,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, nullable=False)
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_type = Column(String(50), nullable=False)
