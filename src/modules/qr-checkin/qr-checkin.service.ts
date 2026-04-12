@@ -345,15 +345,39 @@ export class QrCheckinService {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Also check payment records for accurate payment status
+    // Check Payment table for accurate paid status (webhook updates this)
     const bookingIds = bookings.map(b => b.id);
-    const payments = await this.prisma.payment.findMany({
-      where: { bookingId: { in: bookingIds } },
-      select: { bookingId: true, depositStatus: true },
+    const paidPayments = await this.prisma.payment.findMany({
+      where: {
+        bookingId: { in: bookingIds },
+        depositStatus: 'paid',
+      },
+      select: { bookingId: true },
     });
-    const paidBookingIds = new Set(
-      payments.filter(p => p.depositStatus === 'paid').map(p => p.bookingId)
-    );
+    const paidBookingIds = new Set(paidPayments.map(p => p.bookingId));
+
+    // Also check PaymentCheckout for paid status
+    const paidCheckouts = await this.prisma.paymentCheckout.findMany({
+      where: {
+        bookingIds: { hasSome: bookingIds },
+        status: 'paid',
+      },
+      select: { bookingIds: true },
+    });
+    for (const c of paidCheckouts) {
+      for (const id of c.bookingIds) paidBookingIds.add(id);
+    }
+
+    // Sync any mismatched booking payment statuses
+    for (const b of bookings) {
+      if (paidBookingIds.has(b.id) && b.paymentStatus !== 'paid') {
+        await this.prisma.booking.update({
+          where: { id: b.id },
+          data: { paymentStatus: 'paid' },
+        });
+        b.paymentStatus = 'paid' as any;
+      }
+    }
 
     const queue = bookings.map((b, i) => {
       const firstName = b.customer?.firstName || 'Unknown';
@@ -367,9 +391,6 @@ export class QrCheckinService {
         }
       } catch {}
 
-      // Payment status: check both booking field AND payment records
-      const isPaid = b.paymentStatus === 'paid' || paidBookingIds.has(b.id);
-
       return {
         id: b.id,
         queue_position: i + 1,
@@ -379,7 +400,7 @@ export class QrCheckinService {
         service: serviceName,
         total_price: Math.round((b.totalAmount || 0) * 100),
         status: b.status,
-        payment_status: isPaid ? 'paid' : 'pending',
+        payment_status: paidBookingIds.has(b.id) || b.paymentStatus === 'paid' ? 'paid' : 'pending',
         payment_method: b.paymentMethod || null,
         booking_type: b.notes?.includes('QR walk-in') ? 'self_check_in' : 'booked',
         check_in_source: b.notes?.includes('QR walk-in') ? 'qr_code' : 'app',
@@ -688,11 +709,10 @@ export class QrCheckinService {
     }
 
     const email = booking.customer?.email || '';
-    const amount = Math.round(booking.totalAmount * 100); // Naira to kobo for Paystack
-    const reference = `qr_${bookingId.substring(0, 8)}_${Date.now()}`;
+    const amount = Math.round(booking.totalAmount * 100); // Naira to kobo
+    const clientCheckoutId = `qr_checkout_${bookingId}`;
 
     // Check for existing checkout
-    const clientCheckoutId = `qr_checkout_${bookingId}`;
     const existingCheckout = await this.prisma.paymentCheckout.findUnique({
       where: {
         customerId_clientCheckoutId: {
@@ -702,7 +722,8 @@ export class QrCheckinService {
       },
     });
 
-    if (existingCheckout?.paystackAuthorizationUrl) {
+    // If already has Paystack URL, return it
+    if (existingCheckout?.paystackAuthorizationUrl && existingCheckout.status === 'pending') {
       return {
         success: true,
         data: {
@@ -712,39 +733,32 @@ export class QrCheckinService {
       };
     }
 
+    // If exists but no URL or failed, delete and recreate
     if (existingCheckout) {
-      // Exists but no Paystack URL yet — delete and recreate
+      await this.prisma.payment.deleteMany({ where: { checkoutId: existingCheckout.id } });
       await this.prisma.paymentCheckout.delete({ where: { id: existingCheckout.id } });
     }
 
-    if (existingCheckout?.paystackAuthorizationUrl) {
-      return {
-        success: true,
-        data: {
-          paymentUrl: existingCheckout.paystackAuthorizationUrl,
-          reference: existingCheckout.paystackReference,
-        },
-      };
-    }
+    const reference = `qr_${bookingId.substring(0, 8)}_${Date.now()}`;
 
     // Create checkout record
     const checkout = await this.prisma.paymentCheckout.create({
       data: {
         customerId: booking.customerId,
         bookingIds: [bookingId],
-        clientCheckoutId: `qr_checkout_${bookingId}`,
+        clientCheckoutId,
         totalAmount: booking.totalAmount,
         currency: 'NGN',
         status: 'pending',
       },
     });
 
-    // Create payment record
+    // Create payment record — bookingType MUST be 'Booking' for syncBookingPaymentStatus to work
     await this.prisma.payment.create({
       data: {
         checkoutId: checkout.id,
         bookingId: bookingId,
-        bookingType: 'qr_walkin',
+        bookingType: 'Booking',
         bookingIds: [bookingId],
         customerId: booking.customerId,
         providerId: booking.salonId || '',
@@ -760,34 +774,41 @@ export class QrCheckinService {
     });
 
     // Call Paystack
-    const response = await this.paystack.initializeTransaction({
-      email,
-      amount,
-      reference,
-      callback_url: callbackUrl || undefined,
-      currency: 'NGN',
-      metadata: {
-        bookingId,
-        type: 'qr_walkin',
-        checkoutId: checkout.id,
-      },
-    }) as { data: { authorization_url: string; reference: string } };
+    try {
+      const response = await this.paystack.initializeTransaction({
+        email: email.includes('@primlook.temp') ? `customer_${Date.now()}@primlook.com` : email,
+        amount,
+        reference,
+        callback_url: callbackUrl || undefined,
+        currency: 'NGN',
+        metadata: {
+          bookingId,
+          type: 'qr_walkin',
+          checkoutId: checkout.id,
+        },
+      }) as { data: { authorization_url: string; reference: string } };
 
-    // Update checkout with Paystack details
-    await this.prisma.paymentCheckout.update({
-      where: { id: checkout.id },
-      data: {
-        paystackReference: response.data.reference,
-        paystackAuthorizationUrl: response.data.authorization_url,
-      },
-    });
+      // Update checkout with Paystack details
+      await this.prisma.paymentCheckout.update({
+        where: { id: checkout.id },
+        data: {
+          paystackReference: response.data.reference,
+          paystackAuthorizationUrl: response.data.authorization_url,
+        },
+      });
 
-    return {
-      success: true,
-      data: {
-        paymentUrl: response.data.authorization_url,
-        reference: response.data.reference,
-      },
-    };
+      return {
+        success: true,
+        data: {
+          paymentUrl: response.data.authorization_url,
+          reference: response.data.reference,
+        },
+      };
+    } catch (err: any) {
+      // Clean up on Paystack failure
+      await this.prisma.payment.deleteMany({ where: { checkoutId: checkout.id } });
+      await this.prisma.paymentCheckout.delete({ where: { id: checkout.id } });
+      throw new BadRequestException(err.message || 'Payment initialization failed');
+    }
   }
 }
