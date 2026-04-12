@@ -1,3 +1,4 @@
+import { QrCheckinModule } from './modules/qr-checkin/qr-checkin.module';
 import {
   MiddlewareConsumer,
   Module,
@@ -51,6 +52,7 @@ import { FavouritesModule } from './modules/favourites/favourites.module';
     ChatModule,
     UsersModule,
     FavouritesModule,
+    QrCheckinModule,
   ],
   controllers: [AppController],
   providers: [

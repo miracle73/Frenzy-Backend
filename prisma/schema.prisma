@@ -213,6 +213,8 @@ model Salon {
   business_name     String?
   business_logo     String?
   business_banner   String?
+  slug              String?   @unique
+  qr_code_base64    String?
   website_link      String?
   stylist_count     Int       @default(0)
   full_address      String?
