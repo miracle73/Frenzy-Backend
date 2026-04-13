@@ -294,22 +294,37 @@ export class QrCheckinService {
     if (customerEmail && !customerEmail.includes('@primlook.temp')) {
       try {
         const salonName = salon.business_name || 'Your salon';
+        const serviceList = `${dto.serviceName} — ₦${dto.servicePrice.toLocaleString()}`;
+
+        // Generate payment link for email
+        let paymentLine = '';
+        try {
+          const paymentResult = await this.initializePayment(booking.id);
+          if (paymentResult?.data?.paymentUrl) {
+            paymentLine = `\n\nPay for your appointment here: ${paymentResult.data.paymentUrl}`;
+          }
+        } catch (err: any) {
+          this.logger.warn(`QR check-in payment init for email failed: ${err?.message}`);
+        }
+
         await this.mailService.sendMail({
           to: customerEmail,
-          subject: `You're checked in at ${salonName} — Primlook`,
+          subject: `New appointment with ${salonName}`,
           text:
             `Hi ${dto.firstName},\n\n` +
-            `You're checked in at ${salonName}!\n\n` +
-            `Service: ${dto.serviceName}\n` +
-            `Amount: ₦${dto.servicePrice.toLocaleString()}\n` +
-            `Queue Position: #${queuePosition}\n\n` +
-            `You'll be attended to shortly. A payment link will be available on your check-in page.\n\n` +
-            `— Primlook`,
+            `${salonName} has booked an appointment for you.\n\n` +
+            `Services: ${serviceList}\n` +
+            `Date: ${now.toLocaleDateString('en-NG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n` +
+            `Time: ${now.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}\n` +
+            `Queue Position: #${queuePosition}` +
+            paymentLine +
+            `\n\n— Primlook`,
         });
       } catch (err: any) {
         this.logger.error(`QR check-in email failed: ${err?.message}`);
       }
     }
+
 
     return {
       success: true,
