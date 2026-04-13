@@ -479,16 +479,39 @@ export class QrCheckinService {
   }
 
   // ─── GET /qr/payments/:bookingId/status ───
-  async getPaymentStatus(bookingId: string) {
+async getPaymentStatus(bookingId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       select: { paymentStatus: true, paymentMethod: true },
     });
-
     if (!booking) return { paid: false };
+
+    // Check Payment table (webhook updates this from any source)
+    const paidPayment = await this.prisma.payment.findFirst({
+      where: { bookingId, depositStatus: 'paid' },
+    });
+
+    // Check PaymentCheckout table
+    const paidCheckout = await this.prisma.paymentCheckout.findFirst({
+      where: { bookingIds: { has: bookingId }, status: 'paid' },
+    });
+
+    const isPaid = booking.paymentStatus === 'paid' || !!paidPayment || !!paidCheckout;
+
+    // Auto-sync if mismatch
+    if (isPaid && booking.paymentStatus !== 'paid') {
+      await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: { paymentStatus: 'paid' },
+      });
+    }
+
     return {
-      paid: booking.paymentStatus === 'paid',
-      payment: { status: booking.paymentStatus, method: booking.paymentMethod },
+      paid: isPaid,
+      payment: {
+        status: isPaid ? 'paid' : booking.paymentStatus,
+        method: booking.paymentMethod || paidPayment?.providerType || null,
+      },
     };
   }
 
